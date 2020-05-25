@@ -1,10 +1,10 @@
 from typing import List
+import collections
 
 import torch
 
+import efficientnet, bifpn
 from third_party import (
-    efficientnet,
-    bifpn,
     retinanet_head,
     postprocess,
     regression,
@@ -34,7 +34,7 @@ class EfficientDet(torch.nn.Module):
         backbone: str = "efficientdet-b0",
         anchors_per_cell: int = 4,
         levels: List[int] = [3, 4, 5, 6, 7],
-        use_cuda: bool = True,
+        use_cuda: bool = False,
         num_levels_extracted: int = 3,
         num_detections_per_image: int = 3,
         score_threshold: float = 0.1,
@@ -42,8 +42,13 @@ class EfficientDet(torch.nn.Module):
         """ 
         Args:
             params: (bifpn channels, num bifpns, num retina net convs)
+        Usage:
+        >>> net = EfficientDet(10)
+        >>> len(net(torch.randn(1, 3, 512, 512)))
+        2
         """
         super().__init__()
+        self.levels = levels
         self.num_pyramids = len(levels)
         self.num_levels_extracted = num_levels_extracted
         self.num_detections_per_image = num_detections_per_image
@@ -58,7 +63,7 @@ class EfficientDet(torch.nn.Module):
         params = _MODEL_SCALES[backbone]
 
         # Create the BiFPN with the supplied parameter options.
-        self.fpn = BiFPN.BiFPN(
+        self.fpn = bifpn.BiFPN(
             in_channels=features,
             out_channels=params[2],
             num_bifpns=params[3],
@@ -71,7 +76,6 @@ class EfficientDet(torch.nn.Module):
             img_width=params[0],
             pyramid_levels=levels,
             anchor_scales=[1.0, 1.2599, 1.5874],
-            use_cuda=use_cuda,
         )
         # Create the retinanet head.
         self.retinanet_head = retinanet_head.RetinaNetHead(
@@ -97,7 +101,12 @@ class EfficientDet(torch.nn.Module):
         )
 
     def __call__(self, x: torch.Tensor) -> torch.Tensor:
-        levels = self.backbone.forward_pyramids(x)[-self.num_levels_extracted :]
+        levels = self.backbone.forward_pyramids(x)
+        # Only keep the levels specified during construction.
+        levels = collections.OrderedDict(
+            [item for item in levels.items() if item[0] in self.levels]
+        )
+
         levels = self.fpn(levels)
         classifications, regressions = self.retinanet_head(levels)
 

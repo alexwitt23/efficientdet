@@ -6,6 +6,7 @@ depth (more layers), width (more filters per layer), resolution
 to cause sparse feature learning). """
 
 from typing import Tuple, List
+import collections
 import math
 
 import torch
@@ -411,21 +412,22 @@ class EfficientNet(torch.nn.Module):
 
         return self.model_head(self.model_layers(x))
 
-    def forward_pyramids(self, x: torch.Tensor) -> List[torch.Tensor]:
+    def forward_pyramids(self, x: torch.Tensor) -> collections.OrderedDict:
         """ Get the outputs at each level.
         Usage:
         >>> net = EfficientNet("efficientnet-b0", 2)
         >>> with torch.no_grad():
         ...    levels = net.forward_pyramids(torch.randn(1, 3, 512, 512))
-        >>> [level.shape[-1] for level in levels]
+        >>> [level.shape[-1] for level in levels.values()]
         [256, 128, 64, 32, 16]
         """
-        x1 = self.model_layers[0:2](x)
-        x2 = self.model_layers[2](x1)
-        x3 = self.model_layers[3](x2)
-        x4 = self.model_layers[4:6](x3)
-        x5 = self.model_layers[6:7](x4)
-        return [x1, x2, x3, x4, x5]
+        levels = collections.OrderedDict()
+        levels[1] = self.model_layers[0:2](x)
+        levels[2] = self.model_layers[2](levels[1])
+        levels[3] = self.model_layers[3](levels[2])
+        levels[4] = self.model_layers[4:6](levels[3])
+        levels[5] = self.model_layers[6:7](levels[4])
+        return levels
 
     def get_pyramid_channels(self) -> List[int]:
         """ Return the number of channels from each pyramid level. We only care
@@ -437,7 +439,7 @@ class EfficientNet(torch.nn.Module):
         # TODO(alex) maybe this can be done without a forward pass
         with torch.no_grad():
             out = self.forward_pyramids(torch.randn(1, 3, *self.img_size))
-        out = [level.shape[1] for level in out]  # NCWH
+        out = [level.shape[1] for level in out.values()]  # NCWH
         return out
 
     def delete_classification_head(self) -> None:
