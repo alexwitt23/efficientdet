@@ -270,12 +270,10 @@ class MBConvBlock(torch.nn.Module):
         expand_ratio: int,
         stride: int,
         se_ratio: int,
-        dropout: float,
         skip: bool,
     ) -> None:
         super().__init__()
         self.skip = skip
-        self.dropout = dropout
         self.in_channels = in_channels
         self.out_channels = out_channels
 
@@ -315,7 +313,7 @@ class MBConvBlock(torch.nn.Module):
     def __call__(self, x: torch.Tensor) -> torch.Tensor:
         out = self.layers(x)
         if self.skip and self.in_channels == self.out_channels:
-            out = torch.nn.functional.dropout(out, self.dropout) + x
+            out = out + x
         return out
 
 
@@ -368,7 +366,6 @@ class EfficientNet(torch.nn.Module):
                         expand_ratio=mb_params["expand_ratio"],
                         stride=mb_params["strides"],
                         se_ratio=mb_params["se_ratio"],
-                        dropout=scale_params[-1],
                         skip=mb_params["id_skip"],
                     )
                 ]
@@ -383,7 +380,6 @@ class EfficientNet(torch.nn.Module):
                         expand_ratio=mb_params["expand_ratio"],
                         stride=1,
                         se_ratio=mb_params["se_ratio"],
-                        dropout=scale_params[-1],
                         skip=mb_params["id_skip"],
                     )
                 )
