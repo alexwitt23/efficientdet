@@ -110,9 +110,7 @@ class BiFPN(torch.nn.Module):
             self.bifp_layers.add_module(
                 f"BiFPN_{idx}",
                 BiFPNBlock(
-                    channels=level_channels
-                    if idx == 0
-                    else [out_channels] * bifpn_height,
+                    channels=out_channels,
                     num_levels=bifpn_height,
                     levels_in=channel_dict,
                 ),
