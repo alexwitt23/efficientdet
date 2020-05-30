@@ -95,16 +95,15 @@ class BiFPN(torch.nn.Module):
             self.downsample_convs = torch.nn.Sequential(*self.downsample_convs)
 
         # Specify the channels for the first bifpn layer
-        level_channels = in_channels[-len(levels):] + [out_channels] * (
+        level_channels = in_channels[-len(levels) :] + [out_channels] * (
             self.bifpn_height - len(levels)
         )
-
         # Construct the BiFPN layers. If we are to take fewer feature pyramids than the
         # list given, we must interpolate the others. This occurs when the supplied
         # feature list might not align with anchor grid generated since the anchor grid
         # assumes that each level is 1 / 2 the W, H of
         # the previous level.
-        channel_dict = {level: in_channels[-idx] for idx, level in enumerate(levels)}
+        channel_dict = {level: level_channels[idx] for idx, level in enumerate(levels)}
         self.bifp_layers = torch.nn.Sequential()
         for idx in range(num_bifpns):
             self.bifp_layers.add_module(
@@ -112,7 +111,7 @@ class BiFPN(torch.nn.Module):
                 BiFPNBlock(
                     channels=out_channels,
                     num_levels=bifpn_height,
-                    levels_in=channel_dict,
+                    levels_in=channel_dict if idx == 0 else {level: out_channels for level in levels},
                 ),
             )
 
@@ -158,10 +157,11 @@ class BiFPNBlock(torch.nn.Module):
         for idx, node in enumerate(_NODE_PARAMS):
             # Combine the nodes first.
             self.combines.add_module(
-                f"combine_{idx}", CombineLevels(node, self.index_offset, levels_in, channels)
+                f"combine_{node.offsets}",
+                CombineLevels(node, self.index_offset, channels, levels_in),
             )
             self.post_combines.add_module(
-                f"post_combine_{idx}",
+                f"post_combine_{node.offsets}",
                 torch.nn.Sequential(
                     torch.nn.Conv2d(
                         in_channels=channels,
@@ -189,6 +189,7 @@ class BiFPNBlock(torch.nn.Module):
             feature_maps: A list of the feature maps from each of the
                 pyramid levels. Highest to lowest.
         """
+        assert self.num_levels == len(input_maps)
         for idx, (combine, post_combine_conv) in enumerate(
             zip(self.combines, self.post_combines)
         ):
@@ -198,16 +199,20 @@ class BiFPNBlock(torch.nn.Module):
         # Only return the last n levels
         return collections.OrderedDict(
             [
-                (idx, level)
-                for idx, level in input_maps.items()
-                if idx < len(input_maps) - self.num_levels
+                (idx - self.num_levels, level)
+                for idx, level in enumerate(input_maps.values())
+                if idx >= len(input_maps) - self.num_levels
             ]
         )
 
 
 class CombineLevels(torch.nn.Module):
     def __init__(
-        self, param: node_param, index_offset: int, levels_in: List[int], channels: int
+        self,
+        param: node_param,
+        index_offset: int,
+        channels: int,
+        levels_in: Dict[int, int] = {},
     ) -> None:
         """ Args:
             input_offsets: The node ids to combine.
@@ -221,12 +226,13 @@ class CombineLevels(torch.nn.Module):
         # Construct lateral convolutions if any of the original input levels
         # are part of this node. The lateral convs are needed to homogenize
         # the channel depth.
-        self.lateral_convs = torch.nn.ModuleList([
-            torch.nn.Conv2d(levels_in[offset], channels, kernel_size=1)
-            for offset in self.offsets
-            if offset in levels_in
-        ])
-
+        self.lateral_convs = torch.nn.ModuleList(
+            [
+                torch.nn.Conv2d(levels_in[offset], channels, kernel_size=1)
+                for offset in self.offsets
+                if offset in levels_in and levels_in[offset] != channels
+            ]
+        )
         # Construct the resample module.
         if param.upsample:
             # If upsample, use interpolation.
@@ -236,36 +242,29 @@ class CombineLevels(torch.nn.Module):
             self.resample = torch.nn.Sequential(
                 torch.nn.MaxPool2d(kernel_size=3, padding=1, stride=2),
             )
+
         # Right now only the fast attention addition method is supported.
         self.weights = torch.nn.Parameter(
             torch.ones([len(self.offsets)]), requires_grad=True
         )
 
     def __call__(self, x: collections.OrderedDict) -> collections.OrderedDict:
-
-        # Apply lateral convs if needed. This is only needed on the first sublayer
-        # of the first bifpn block.
-        if self.lateral_convs:
-            counter = 0
-            for level in self.levels_in:
-                if level in x:
-                    x[level] = self.lateral_convs[counter](x[level])
-                    counter += 1
-            
+        
         # Extract the nodes this combination module considers.
-        nodes = collections.OrderedDict([(idx, x[idx]) for idx in self.offsets])
+        nodes = collections.OrderedDict()
+        for node in x:
+            # Apply lateral convs if needed. This is only needed on the first sublayer
+            # of the first bifpn block due to the size of the original pyramid levels
+            # extracted from the backbone.
+            if self.lateral_convs and node in self.levels_in and node in self.offsets: 
+                nodes[node] = self.lateral_convs[0](x[node])
+            elif node != max(self.offsets):
+                nodes[node] = x[node]
 
-
-        if self.upsample:
-            # If downsample, take the largest node id as the node to upsample.
-            nodes[max(self.offsets)] = self.resample(nodes[max(self.offsets)])
-        else:
-            # If upsampling, take the smallest node id and apply upsample.
-            nodes[max(self.offsets)] = self.resample(nodes[max(self.offsets)])
+        nodes[max(self.offsets)] = self.resample(x[max(self.offsets)])
 
         # Now combine all the nodes.
         weights = torch.nn.functional.relu(self.weights)
-
         new_node = torch.stack(
             [
                 nodes[offset] * weights[idx] / torch.sum(weights + self.eps)
