@@ -141,7 +141,7 @@ class BiFPNBlock(torch.nn.Module):
     """ Modular implementation of a single BiFPN layer. """
 
     def __init__(
-        self, channels: Dict[int], num_levels: int, levels_in: Dict[int, int]
+        self, channels: int, num_levels: int, levels_in: Dict[int, int]
     ) -> None:
         """
         Args:
