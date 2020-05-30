@@ -160,7 +160,7 @@ class BiFPNBlock(torch.nn.Module):
         for idx, node in enumerate(_NODE_PARAMS):
             # Combine the nodes first.
             self.combines.add_module(
-                f"combine_{idx}", CombineLevels(node, self.index_offset, levels_in)
+                f"combine_{idx}", CombineLevels(node, self.index_offset, levels_in, channels)
             )
             self.post_combines.add_module(
                 f"post_combine_{idx}",
