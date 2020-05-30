@@ -114,7 +114,7 @@ class BiFPN(torch.nn.Module):
                     if idx == 0
                     else [out_channels] * bifpn_height,
                     num_levels=bifpn_height,
-                    levels_ins=channel_dict,
+                    levels_in=channel_dict,
                 ),
             )
 
