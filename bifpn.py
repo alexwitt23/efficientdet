@@ -56,9 +56,9 @@ class BiFPN(torch.nn.Module):
         in_channels: List[int],
         out_channels: int,
         num_bifpns: int,
-        num_levels_in: int,
         bifpn_height: int = 5,
         use_dw: bool = False,
+        levels: List[int] = [3, 4, 5],
     ) -> None:
         """ 
         Args:
@@ -73,13 +73,13 @@ class BiFPN(torch.nn.Module):
             bifpn. NOTE might not be equal to num_levels_in. 
         """
         super().__init__()
-        self.num_levels_in = num_levels_in
+        self.levels_in = levels
         self.bifpn_height = bifpn_height
         self.in_channels = in_channels
 
         # If BiFPN needs more levels than what is being put in, downsample the incoming
         # level to form lower resolution levels.
-        if self.bifpn_height != self.num_levels_in:
+        if self.bifpn_height != len(self.levels_in):
 
             # This first level we dowsample will also be pointwise constrained to the
             # specified channel depth associated with this bifpn.
@@ -96,7 +96,7 @@ class BiFPN(torch.nn.Module):
 
         # Specify the channels for the first bifpn layer
         level_channels = in_channels[-num_levels_in:] + [out_channels] * (
-            self.bifpn_height - num_levels_in
+            self.bifpn_height - len(self.levels_in)
         )
 
         # Construct the BiFPN layers. If we are to take fewer feature pyramids than the
@@ -104,6 +104,7 @@ class BiFPN(torch.nn.Module):
         # feature list might not align with anchor grid generated since the anchor grid
         # assumes that each level is 1 / 2 the W, H of
         # the previous level.
+        channel_dict = {level: in_channels[-idx] for idx, level in enumerate(levels)}
         self.bifp_layers = torch.nn.Sequential()
         for idx in range(num_bifpns):
             self.bifp_layers.add_module(
@@ -113,7 +114,7 @@ class BiFPN(torch.nn.Module):
                     if idx == 0
                     else [out_channels] * bifpn_height,
                     num_levels=bifpn_height,
-                    num_levels_in=self.num_levels_in,
+                    levels_ins=channel_dict,
                 ),
             )
 
@@ -125,7 +126,7 @@ class BiFPN(torch.nn.Module):
             feature_maps: Feature maps in sorted order of layer. 
         """
         # Make sure fpn gets the anticipated number of levels.
-        assert len(feature_maps) == self.num_levels_in, len(feature_maps)
+        assert len(feature_maps) == len(self.levels_in), len(feature_maps)
 
         # Apply the downsampling to form the top layers.
         for layer in self.downsample_convs:
@@ -140,7 +141,7 @@ class BiFPNBlock(torch.nn.Module):
     """ Modular implementation of a single BiFPN layer. """
 
     def __init__(
-        self, channels: int, num_levels: int = 5, num_levels_in: int = 3
+        self, channels: Dict[int], num_levels: int, levels_in: Dict[int, int]
     ) -> None:
         """
         Args:
@@ -152,14 +153,14 @@ class BiFPNBlock(torch.nn.Module):
         self.num_levels = num_levels
         self.combines = torch.nn.Sequential()
         self.post_combines = torch.nn.Sequential()
-        self.index_offset = num_levels - num_levels_in + 1
+        self.index_offset = num_levels - len(levels_in) + 1
 
         # Create node combination and depthwise separable convolutions that will process
         # the input feature maps.
         for idx, node in enumerate(_NODE_PARAMS):
             # Combine the nodes first.
             self.combines.add_module(
-                f"combine_{idx}", CombineLevels(node, self.index_offset)
+                f"combine_{idx}", CombineLevels(node, self.index_offset, levels_in)
             )
             self.post_combines.add_module(
                 f"post_combine_{idx}",
@@ -207,7 +208,9 @@ class BiFPNBlock(torch.nn.Module):
 
 
 class CombineLevels(torch.nn.Module):
-    def __init__(self, param: node_param, index_offset: int) -> None:
+    def __init__(
+        self, param: node_param, index_offset: int, levels_in: List[int], channels: int
+    ) -> None:
         """ Args:
             input_offsets: The node ids to combine.
         """
@@ -215,6 +218,16 @@ class CombineLevels(torch.nn.Module):
         self.eps = 1e-4
         self.upsample = param.upsample
         self.offsets = [index_offset + offset for offset in param.offsets]
+
+        # Construct lateral convolutions if any of the original input levels
+        # are part of this node. The lateral convs are needed to homogenize
+        # the channel depth.
+        self.lateral_convs = [
+            torch.nn.Conv2d(levels_in[offset], channels, kernel_size=1)
+            for offset in self.offsets
+            if offset in levels_in
+        ]
+
         # Construct the resample module.
         if param.upsample:
             # If upsample, use interpolation.
