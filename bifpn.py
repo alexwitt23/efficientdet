@@ -216,15 +216,16 @@ class CombineLevels(torch.nn.Module):
         self.eps = 1e-4
         self.upsample = param.upsample
         self.offsets = [index_offset + offset for offset in param.offsets]
+        self.levels_in = levels_in
 
         # Construct lateral convolutions if any of the original input levels
         # are part of this node. The lateral convs are needed to homogenize
         # the channel depth.
-        self.lateral_convs = [
+        self.lateral_convs = torch.nn.ModuleList([
             torch.nn.Conv2d(levels_in[offset], channels, kernel_size=1)
             for offset in self.offsets
             if offset in levels_in
-        ]
+        ])
 
         # Construct the resample module.
         if param.upsample:
@@ -244,6 +245,16 @@ class CombineLevels(torch.nn.Module):
 
         # Extract the nodes this combination module considers.
         nodes = collections.OrderedDict([(idx, x[idx]) for idx in self.offsets])
+
+        # Apply lateral convs if needed. This is only needed on the first sublayer
+        # of the first bifpn block.
+        if lateral_convs:
+            counter = 0
+            for level in levels_in:
+                if level in x:
+                    x[level] = self.lateral_convs(counter)[x[level]]
+                    counter += 1
+            
 
         if self.upsample:
             # If downsample, take the largest node id as the node to upsample.
