@@ -249,7 +249,7 @@ class CombineLevels(torch.nn.Module):
             counter = 0
             for level in self.levels_in:
                 if level in x:
-                    x[level] = self.lateral_convs(counter)[x[level]]
+                    x[level] = self.lateral_convs[counter](x[level])
                     counter += 1
             
         # Extract the nodes this combination module considers.
