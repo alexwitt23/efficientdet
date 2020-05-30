@@ -250,7 +250,7 @@ class CombineLevels(torch.nn.Module):
         # of the first bifpn block.
         if self.lateral_convs:
             counter = 0
-            for level in levels_in:
+            for level in self.levels_in:
                 if level in x:
                     x[level] = self.lateral_convs(counter)[x[level]]
                     counter += 1
