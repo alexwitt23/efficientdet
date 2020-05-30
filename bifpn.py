@@ -25,6 +25,28 @@ _NODE_PARAMS = [
 ]
 
 
+def depthwise(in_channels: int, out_channels: int):
+    """ A depthwise separable linear layer. """
+    return [
+        torch.nn.Conv2d(
+            in_channels,
+            in_channels,
+            kernel_size=3,
+            padding=1,
+            bias=False,
+            groups=in_channels,
+        ),
+        torch.nn.Conv2d(in_channels, out_channels, kernel_size=1, bias=True),
+    ]
+
+
+def conv3x3(in_channels: int, out_channels: int):
+    """ Simple Conv2d layer. """
+    return [
+        torch.nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1, bias=True),
+    ]
+
+
 class BiFPN(torch.nn.Module):
     """ Implementation of thee BiFPN originally proposed in 
     https://arxiv.org/pdf/1911.09070.pdf. """
@@ -36,6 +58,7 @@ class BiFPN(torch.nn.Module):
         num_bifpns: int,
         num_levels_in: int,
         bifpn_height: int = 5,
+        use_dw: bool = False,
     ) -> None:
         """ 
         Args:
@@ -68,15 +91,26 @@ class BiFPN(torch.nn.Module):
         )
 
         # If BiFPN needs more levels than what is being put in, downsample the incoming
-        # level. We will expand the number of layers after lateral convs
+        # level to form lower resolution levels.
         if self.bifpn_height != self.num_levels_in:
+
+            # This first level we dowsample will also be pointwise constrained to the
+            # specified channel depth associated with this bifpn.
             self.downsample_convs = [
                 torch.nn.Sequential(
                     torch.nn.MaxPool2d(kernel_size=3, padding=1, stride=2),
+                    torch.nn.Conv2d(in_channels[-1], out_channels, kernel_size=1),
                 )
-                for _ in range(self.bifpn_height - num_levels_in)
+            ] + [
+                torch.nn.MaxPool2d(kernel_size=3, padding=1, stride=2)
+                for _ in range(self.bifpn_height - num_levels_in - 1)
             ]
             self.downsample_convs = torch.nn.Sequential(*self.downsample_convs)
+
+        # Specify the channels for the first bifpn layer
+        level_channels = in_channels[-num_levels_in:] + [out_channels] * (
+            self.bifpn_height - num_levels_in
+        )
 
         # Construct the BiFPN layers. If we are to take fewer feature pyramids than the
         # list given, we must interpolate the others. This occurs when the supplied
@@ -88,7 +122,9 @@ class BiFPN(torch.nn.Module):
             self.bifp_layers.add_module(
                 f"BiFPN_{idx}",
                 BiFPNBlock(
-                    channels=out_channels,
+                    channels=level_channels
+                    if idx == 0
+                    else [out_channels] * bifpn_height,
                     num_levels=bifpn_height,
                     num_levels_in=self.num_levels_in,
                 ),
@@ -103,16 +139,6 @@ class BiFPN(torch.nn.Module):
         """
         # Make sure fpn gets the anticipated number of levels.
         assert len(feature_maps) == self.num_levels_in, len(feature_maps)
-
-        # If we need to downsample the last couple layers, first apply a lateral convolution if
-        # needed, then upsample. This is similar to the original implementation's
-        # `resample_feature_map`:
-        # https://github.com/google/automl/blob/3e7d7b77bcefb3f7051de6c468e0e17ce201165e/efficientdet/efficientdet_arch.py#L105.
-
-        # Apply the lateral convolutions, to get the input feature maps to the same
-        # number of channels.
-        for idx, (level_idx, feat_map) in enumerate(feature_maps.items()):
-            feature_maps[level_idx] = self.lateral_convs[idx](feat_map)
 
         # Apply the downsampling to form the top layers.
         for layer in self.downsample_convs:
@@ -139,8 +165,8 @@ class BiFPNBlock(torch.nn.Module):
         self.num_levels = num_levels
         self.combines = torch.nn.Sequential()
         self.post_combines = torch.nn.Sequential()
-        self.index_offset =  num_levels - num_levels_in + 1
-        
+        self.index_offset = num_levels - num_levels_in + 1
+
         # Create node combination and depthwise separable convolutions that will process
         # the input feature maps.
         for idx, node in enumerate(_NODE_PARAMS):
@@ -177,12 +203,20 @@ class BiFPNBlock(torch.nn.Module):
             feature_maps: A list of the feature maps from each of the
                 pyramid levels. Highest to lowest.
         """
-        for idx, (combine, post_combine_conv) in enumerate(zip(self.combines, self.post_combines)):
+        for idx, (combine, post_combine_conv) in enumerate(
+            zip(self.combines, self.post_combines)
+        ):
             level_idx = next(reversed(input_maps.keys()))
             input_maps[level_idx + 1] = post_combine_conv(combine(input_maps))
 
         # Only return the last n levels
-        return collections.OrderedDict([(idx, level) for idx, level in input_maps.items() if idx < len(input_maps) - self.num_levels])
+        return collections.OrderedDict(
+            [
+                (idx, level)
+                for idx, level in input_maps.items()
+                if idx < len(input_maps) - self.num_levels
+            ]
+        )
 
 
 class CombineLevels(torch.nn.Module):
@@ -212,7 +246,7 @@ class CombineLevels(torch.nn.Module):
 
         # Extract the nodes this combination module considers.
         nodes = collections.OrderedDict([(idx, x[idx]) for idx in self.offsets])
-        
+
         if self.upsample:
             # If downsample, take the largest node id as the node to upsample.
             nodes[max(self.offsets)] = self.resample(nodes[max(self.offsets)])
@@ -223,9 +257,12 @@ class CombineLevels(torch.nn.Module):
         # Now combine all the nodes.
         weights = torch.nn.functional.relu(self.weights)
 
-        new_node = torch.stack([
-            nodes[offset] * weights[idx] / torch.sum(weights + self.eps)
-            for idx, offset in enumerate(self.offsets)
-        ], dim=-1)
+        new_node = torch.stack(
+            [
+                nodes[offset] * weights[idx] / torch.sum(weights + self.eps)
+                for idx, offset in enumerate(self.offsets)
+            ],
+            dim=-1,
+        )
 
         return torch.sum(new_node, dim=-1)
