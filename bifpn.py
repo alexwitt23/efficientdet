@@ -248,7 +248,7 @@ class CombineLevels(torch.nn.Module):
 
         # Apply lateral convs if needed. This is only needed on the first sublayer
         # of the first bifpn block.
-        if lateral_convs:
+        if self.lateral_convs:
             counter = 0
             for level in levels_in:
                 if level in x:
