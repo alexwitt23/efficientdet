@@ -76,19 +76,6 @@ class BiFPN(torch.nn.Module):
         self.num_levels_in = num_levels_in
         self.bifpn_height = bifpn_height
         self.in_channels = in_channels
-        # Construct the lateral convs. These take the outputs from the specified pyramid
-        # levels and expand to a common number of channels. NOTE no activations.
-        self.lateral_convs = torch.nn.ModuleList(
-            [
-                torch.nn.Conv2d(
-                    in_channels=num_channels,
-                    out_channels=out_channels,
-                    kernel_size=1,
-                    stride=1,
-                )
-                for num_channels in in_channels[-num_levels_in:]
-            ]
-        )
 
         # If BiFPN needs more levels than what is being put in, downsample the incoming
         # level to form lower resolution levels.
