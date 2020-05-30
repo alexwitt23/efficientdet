@@ -243,9 +243,6 @@ class CombineLevels(torch.nn.Module):
 
     def __call__(self, x: collections.OrderedDict) -> collections.OrderedDict:
 
-        # Extract the nodes this combination module considers.
-        nodes = collections.OrderedDict([(idx, x[idx]) for idx in self.offsets])
-
         # Apply lateral convs if needed. This is only needed on the first sublayer
         # of the first bifpn block.
         if self.lateral_convs:
@@ -255,6 +252,9 @@ class CombineLevels(torch.nn.Module):
                     x[level] = self.lateral_convs(counter)[x[level]]
                     counter += 1
             
+        # Extract the nodes this combination module considers.
+        nodes = collections.OrderedDict([(idx, x[idx]) for idx in self.offsets])
+
 
         if self.upsample:
             # If downsample, take the largest node id as the node to upsample.
