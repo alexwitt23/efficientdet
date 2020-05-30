@@ -90,13 +90,13 @@ class BiFPN(torch.nn.Module):
                 )
             ] + [
                 torch.nn.MaxPool2d(kernel_size=3, padding=1, stride=2)
-                for _ in range(self.bifpn_height - num_levels_in - 1)
+                for _ in range(self.bifpn_height - len(levels) - 1)
             ]
             self.downsample_convs = torch.nn.Sequential(*self.downsample_convs)
 
         # Specify the channels for the first bifpn layer
-        level_channels = in_channels[-num_levels_in:] + [out_channels] * (
-            self.bifpn_height - len(self.levels_in)
+        level_channels = in_channels[-len(levels):] + [out_channels] * (
+            self.bifpn_height - len(levels)
         )
 
         # Construct the BiFPN layers. If we are to take fewer feature pyramids than the
