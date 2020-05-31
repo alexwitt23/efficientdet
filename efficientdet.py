@@ -23,7 +23,7 @@ _MODEL_SCALES = {
 
 
 class EfficientDet(torch.nn.Module):
-    """ Implementatin of EfficientDet originally described in 
+    """ Implementatin of EfficientDet originally proposed in 
     [1] Mingxing Tan, Ruoming Pang, Quoc Le.
     EfficientDet: Scalable and Efficient Object Detection.
     CVPR 2020, https://arxiv.org/abs/1911.09070 """
@@ -32,19 +32,19 @@ class EfficientDet(torch.nn.Module):
         self,
         num_classes: int,
         backbone: str = "efficientdet-b0",
-        anchors_per_cell: int = 4,
         levels: List[int] = [3, 4, 5, 6, 7],
-        use_cuda: bool = False,
         num_levels_extracted: int = 3,
         num_detections_per_image: int = 3,
-        score_threshold: float = 0.1,
+        score_threshold: float = 0.05,
     ) -> None:
         """ 
         Args:
             params: (bifpn channels, num bifpns, num retina net convs)
         Usage:
-        >>> net = EfficientDet(10)
-        >>> len(net(torch.randn(1, 3, 512, 512)))
+        >>> net = EfficientDet(10).train()
+        >>> with torch.no_grad():
+        ...     out = net(torch.randn(1, 3, 512, 512))
+        >>> len(out)
         2
         """
         super().__init__()
@@ -57,6 +57,7 @@ class EfficientDet(torch.nn.Module):
             _MODEL_SCALES[backbone][1], num_classes=num_classes
         )
         self.backbone.delete_classification_head()
+
         # Get the output feature for the pyramids we need
         features = self.backbone.get_pyramid_channels()[-num_levels_extracted:]
 
@@ -67,15 +68,14 @@ class EfficientDet(torch.nn.Module):
             in_channels=features,
             out_channels=params[2],
             num_bifpns=params[3],
-            num_levels_in=3,
+            levels=[3, 4, 5],
             bifpn_height=5,
         )
-
         self.anchors = anchors.AnchorGenerator(
             img_height=params[0],
             img_width=params[0],
             pyramid_levels=levels,
-            anchor_scales=[1.0, 1.2599, 1.5874],
+            anchor_scales=[1.0, 1.25, 1.50],
         )
         # Create the retinanet head.
         self.retinanet_head = retinanet_head.RetinaNetHead(
@@ -83,10 +83,9 @@ class EfficientDet(torch.nn.Module):
             in_channels=params[2],
             anchors_per_cell=self.anchors.num_anchors_per_cell,
             num_convolutions=params[4],
-            dropout=0.2,
         )
 
-        if use_cuda:
+        if torch.cuda.is_available():
             self.anchors.all_anchors = self.anchors.all_anchors.cuda()
             self.anchors.anchors_over_all_feature_maps = [
                 anchors.cuda() for anchors in self.anchors.anchors_over_all_feature_maps
@@ -99,6 +98,8 @@ class EfficientDet(torch.nn.Module):
             max_detections_per_image=num_detections_per_image,
             score_threshold=score_threshold,
         )
+
+        self.eval()
 
     def __call__(self, x: torch.Tensor) -> torch.Tensor:
         levels = self.backbone.forward_pyramids(x)

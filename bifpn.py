@@ -111,7 +111,9 @@ class BiFPN(torch.nn.Module):
                 BiFPNBlock(
                     channels=out_channels,
                     num_levels=bifpn_height,
-                    levels_in=channel_dict if idx == 0 else {level: out_channels for level in levels},
+                    levels_in=channel_dict
+                    if idx == 0
+                    else {level: out_channels for level in levels},
                 ),
             )
 
@@ -249,14 +251,14 @@ class CombineLevels(torch.nn.Module):
         )
 
     def __call__(self, x: collections.OrderedDict) -> collections.OrderedDict:
-        
+
         # Extract the nodes this combination module considers.
         nodes = collections.OrderedDict()
         for node in x:
             # Apply lateral convs if needed. This is only needed on the first sublayer
             # of the first bifpn block due to the size of the original pyramid levels
             # extracted from the backbone.
-            if self.lateral_convs and node in self.levels_in and node in self.offsets: 
+            if self.lateral_convs and node in self.levels_in and node in self.offsets:
                 nodes[node] = self.lateral_convs[0](x[node])
             elif node != max(self.offsets):
                 nodes[node] = x[node]
