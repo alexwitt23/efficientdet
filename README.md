@@ -4,7 +4,7 @@ An implementation of efficientdet based on the [original paper](https://arxiv.or
 and the [official code](https://github.com/google/automl/tree/master/efficientdet). 
 
 
-## Training
+## TODO
 
-There is some example code to train the efficientdet models
-on some 
+- [ ] Add trainer code
+- [ ] Add more tests
