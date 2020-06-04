@@ -75,9 +75,7 @@ class RetinaNetHead(torch.nn.Module):
         # Here is where the two subnets diverge. The classification net expands the input
         # into (anchors_num * num_classes) filters because it predicts 'the probability
         # of object presence at each spatial postion for each of the A anchors
-        self.cls_pred = torch.nn.Sequential(
-            *conv(in_channels, num_classes * anchors_per_cell)
-        )
+        self.cls_pred = torch.nn.Sequential(*conv(in_channels, num_classes))
 
         # The regerssion expands the input into (4 * A) channels. So each x,y in the
         # feature map has (4 * A) channels where 4 represents (dx, dy, dw, dh). The
@@ -111,21 +109,27 @@ class RetinaNetHead(torch.nn.Module):
         bbox_regressions = []
         classifications = []
         for level_idx, level in enumerate(feature_maps.values()):
-
+            cls_out = level
             for conv_idx, (conv, act) in enumerate(
                 zip(self.classification_subnet, self.classification_acts)
             ):
-                bbox_regressions.append(
-                    act(self.classification_bns[level_idx][conv_idx](conv(level)))
-                )
-            bbox_regressions[-1] = self.reg_pred(bbox_regressions[-1])
+                if conv_idx > 0:
+                    classifications[-1] = act(self.classification_bns[level_idx][conv_idx](conv(classifications[-1])))
+                else:
+                    classifications.append(
+                        act(self.classification_bns[level_idx][conv_idx](conv(level)))
+                    )
+            classifications[-1] = self.cls_pred(classifications[-1])
 
             for conv_idx, (conv, act) in enumerate(
                 zip(self.regression_subnet, self.regression_acts)
             ):
-                classifications.append(
-                    act(self.regression_bns[level_idx][conv_idx](conv(level)))
-                )
-            classifications[-1] = self.cls_pred(classifications[-1])
+                if conv_idx > 0:
+                    bbox_regressions[-1] = act(self.regression_bns[level_idx][conv_idx](conv(bbox_regressions[-1])))
+                else:
+                    bbox_regressions.append(
+                        act(self.regression_bns[level_idx][conv_idx](conv(level)))
+                    )
+            bbox_regressions[-1] = self.reg_pred(bbox_regressions[-1])
 
         return classifications, bbox_regressions
