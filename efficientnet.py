@@ -161,7 +161,7 @@ def depthwise(channels: int, kernel_size: int, stride: int) -> List[torch.nn.Mod
         ),
         torch.nn.BatchNorm2d(
             num_features=channels, momentum=_BATCH_NORM_MOMENTUM, eps=_BATCH_NORM_EPS
-        )
+        ),
     ]
 
 
@@ -247,12 +247,14 @@ class MBConvBlock(torch.nn.Module):
                 ),
                 get_activiation(is_lite),
             ]
-        self.layers.extend([
-            *depthwise(
-                channels=expanded_channels, kernel_size=kernel_size, stride=stride
-            ),
-            get_activiation(is_lite)
-        ])
+        self.layers.extend(
+            [
+                *depthwise(
+                    channels=expanded_channels, kernel_size=kernel_size, stride=stride
+                ),
+                get_activiation(is_lite),
+            ]
+        )
 
         if is_lite:
             self.layers.append(
@@ -475,7 +477,7 @@ def init(module: torch.nn.Module):
     elif isinstance(module, torch.nn.BatchNorm2d):
         torch.nn.init.ones_(module.weight)
         torch.nn.init.zeros_(module.bias)
-        
+
     elif isinstance(module, torch.nn.Linear):
         init_range = 1.0 / math.sqrt(module.weight.shape[1])
         torch.nn.init.uniform_(module.weight, -init_range, init_range)

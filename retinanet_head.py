@@ -44,6 +44,7 @@ class RetinaNetHead(torch.nn.Module):
         anchors_per_cell: int,
         num_convolutions: int = 4,  # Original paper proposes 4 convs
         use_dw: bool = False,
+        num_levels: int = 5,
     ) -> None:
         super().__init__()
 
@@ -52,56 +53,79 @@ class RetinaNetHead(torch.nn.Module):
         else:
             conv = conv3x3
 
-        # Create the two subnets
-        classification_subnet = torch.nn.ModuleList([])
+        # Create the two subnets, but separate batch norms for each layer and each level.
+        self.classification_subnet = torch.nn.ModuleList()
+        self.classification_bns = torch.nn.ModuleList()
+        self.classification_acts = torch.nn.ModuleList()
         for idx in range(num_convolutions):
-            classification_subnet += [
-                *conv(in_channels, in_channels),
-                torch.nn.BatchNorm2d(in_channels),
-                torch.nn.ReLU(inplace=True),
-            ]
+            self.classification_subnet.extend(conv(in_channels, in_channels))
+            self.classification_acts.append(torch.nn.ReLU(inplace=True))
+
+        for conv_idx in range(num_levels):
+            level_bns = torch.nn.ModuleList()
+            for level_idx in range(num_convolutions):
+                level_bns.append(torch.nn.BatchNorm2d(in_channels, 1e-2, 1e-3))
+            self.classification_bns.append(level_bns)
 
         # NOTE same basic architecture between box regression and classification
-        regression_subnet = copy.deepcopy(classification_subnet)
+        self.regression_subnet = copy.deepcopy(self.classification_subnet)
+        self.regression_bns = copy.deepcopy(self.classification_bns)
+        self.regression_acts = copy.deepcopy(self.classification_acts)
 
         # Here is where the two subnets diverge. The classification net expands the input
         # into (anchors_num * num_classes) filters because it predicts 'the probability
         # of object presence at each spatial postion for each of the A anchors
-        classification_subnet += [*conv(in_channels, num_classes * anchors_per_cell)]
+        self.cls_pred = torch.nn.Sequential(
+            *conv(in_channels, num_classes * anchors_per_cell)
+        )
 
         # The regerssion expands the input into (4 * A) channels. So each x,y in the
         # feature map has (4 * A) channels where 4 represents (dx, dy, dw, dh). The
         # regressions for each component of each anchor box.
-        regression_subnet += [*conv(in_channels, anchors_per_cell * 4)]
+        self.reg_pred = torch.nn.Sequential(*conv(in_channels, anchors_per_cell * 4))
 
         # Initialize the model
         if not use_dw:
-            for subnet in [regression_subnet, classification_subnet]:
+            for subnet in [
+                self.regression_subnet,
+                self.classification_subnet,
+                self.cls_pred,
+                self.reg_pred,
+            ]:
                 for layer in subnet.modules():
                     if isinstance(layer, torch.nn.Conv2d):
                         torch.nn.init.normal_(layer.weight, mean=0, std=0.01)
                         torch.nn.init.constant_(layer.bias, 0)
 
-        self.regression_subnet = torch.nn.Sequential(*regression_subnet)
-        self.classification_subnet = torch.nn.Sequential(*classification_subnet)
-
         # Use prior in model initialization to improve classification stability.
         prior_prob = 0.01
         bias_value = -(math.log((1 - prior_prob) / prior_prob))
-        torch.nn.init.constant_(self.classification_subnet[-1].bias, bias_value)
-        torch.nn.init.constant_(self.regression_subnet[-1].bias, bias_value)
+        torch.nn.init.constant_(self.cls_pred[-1].bias, bias_value)
+        torch.nn.init.constant_(self.reg_pred[-1].bias, bias_value)
 
     def __call__(
         self, feature_maps: collections.OrderedDict
     ) -> Tuple[List[torch.Tensor], List[torch.Tensor]]:
         """ Applies the regression and classification subnets to each of the
         incoming feature maps. """
+        bbox_regressions = []
+        classifications = []
+        for level_idx, level in enumerate(feature_maps.values()):
 
-        bbox_regressions = [
-            self.regression_subnet(level) for level in feature_maps.values()
-        ]
-        classifications = [
-            self.classification_subnet(level) for level in feature_maps.values()
-        ]
+            for conv_idx, (conv, act) in enumerate(
+                zip(self.classification_subnet, self.classification_acts)
+            ):
+                bbox_regressions.append(
+                    act(self.classification_bns[level_idx][conv_idx](conv(level)))
+                )
+            bbox_regressions[-1] = self.reg_pred(bbox_regressions[-1])
+
+            for conv_idx, (conv, act) in enumerate(
+                zip(self.regression_subnet, self.regression_acts)
+            ):
+                classifications.append(
+                    act(self.regression_bns[level_idx][conv_idx](conv(level)))
+                )
+            classifications[-1] = self.cls_pred(classifications[-1])
 
         return classifications, bbox_regressions
