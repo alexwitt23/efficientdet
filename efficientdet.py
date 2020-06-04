@@ -3,9 +3,8 @@ import collections
 
 import torch
 
-import efficientnet, bifpn
+import efficientnet, bifpn, retinanet_head
 from third_party import (
-    retinanet_head,
     postprocess,
     regression,
     anchors,

@@ -34,7 +34,8 @@ def conv3x3(in_channels: int, out_channels: int):
 class RetinaNetHead(torch.nn.Module):
     """ This model head contains two components: classification and box regression.
     See the original RetinaNet paper for more details,
-    https://arxiv.org/pdf/1708.02002.pdf. """
+    https://arxiv.org/pdf/1708.02002.pdf. The official efficientdet implementation also
+    applies separate batch norms per level. """
 
     def __init__(
         self,
@@ -59,6 +60,7 @@ class RetinaNetHead(torch.nn.Module):
                 torch.nn.BatchNorm2d(in_channels),
                 torch.nn.ReLU(inplace=True),
             ]
+
         # NOTE same basic architecture between box regression and classification
         regression_subnet = copy.deepcopy(classification_subnet)
 
