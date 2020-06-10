@@ -47,6 +47,7 @@ class RetinaNetHead(torch.nn.Module):
         num_levels: int = 5,
     ) -> None:
         super().__init__()
+        self.num_levels = num_levels
 
         if use_dw:
             conv = depthwise
@@ -105,6 +106,8 @@ class RetinaNetHead(torch.nn.Module):
     ) -> Tuple[List[torch.Tensor], List[torch.Tensor]]:
         """ Applies the regression and classification subnets to each of the
         incoming feature maps. """
+        assert len(feature_maps) == self.num_levels 
+
         bbox_regressions_inter = []
         classifications_inter = []
         bbox_regressions = []
