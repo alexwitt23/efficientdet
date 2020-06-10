@@ -106,7 +106,7 @@ class RetinaNetHead(torch.nn.Module):
     ) -> Tuple[List[torch.Tensor], List[torch.Tensor]]:
         """ Applies the regression and classification subnets to each of the
         incoming feature maps. """
-        assert len(feature_maps) == self.num_levels 
+        assert len(feature_maps) == self.num_levels
 
         bbox_regressions_inter = []
         classifications_inter = []
@@ -122,7 +122,11 @@ class RetinaNetHead(torch.nn.Module):
                     classifications_inter.append(level)
 
                 classifications_inter.append(
-                    act(self.classification_bns[level_idx][conv_idx](conv(classifications_inter[-1])))
+                    act(
+                        self.classification_bns[level_idx][conv_idx](
+                            conv(classifications_inter[-1])
+                        )
+                    )
                 )
             classifications.append(self.cls_pred(classifications_inter[-1]))
 
@@ -133,7 +137,11 @@ class RetinaNetHead(torch.nn.Module):
                     bbox_regressions_inter.append(level)
 
                 bbox_regressions_inter.append(
-                    act(self.regression_bns[level_idx][conv_idx](conv(bbox_regressions_inter[-1])))
+                    act(
+                        self.regression_bns[level_idx][conv_idx](
+                            conv(bbox_regressions_inter[-1])
+                        )
+                    )
                 )
             bbox_regressions.append(self.reg_pred(bbox_regressions_inter[-1]))
 
