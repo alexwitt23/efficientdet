@@ -99,7 +99,6 @@ class RetinaNetHead(torch.nn.Module):
         prior_prob = 0.01
         bias_value = -(math.log((1 - prior_prob) / prior_prob))
         torch.nn.init.constant_(self.cls_pred[-1].bias, bias_value)
-        torch.nn.init.constant_(self.reg_pred[-1].bias, bias_value)
 
     def __call__(
         self, feature_maps: collections.OrderedDict
@@ -114,7 +113,11 @@ class RetinaNetHead(torch.nn.Module):
                 zip(self.classification_subnet, self.classification_acts)
             ):
                 if conv_idx > 0:
-                    classifications[-1] = act(self.classification_bns[level_idx][conv_idx](conv(classifications[-1])))
+                    classifications[-1] = act(
+                        self.classification_bns[level_idx][conv_idx](
+                            conv(classifications[-1])
+                        )
+                    )
                 else:
                     classifications.append(
                         act(self.classification_bns[level_idx][conv_idx](conv(level)))
@@ -125,7 +128,11 @@ class RetinaNetHead(torch.nn.Module):
                 zip(self.regression_subnet, self.regression_acts)
             ):
                 if conv_idx > 0:
-                    bbox_regressions[-1] = act(self.regression_bns[level_idx][conv_idx](conv(bbox_regressions[-1])))
+                    bbox_regressions[-1] = act(
+                        self.regression_bns[level_idx][conv_idx](
+                            conv(bbox_regressions[-1])
+                        )
+                    )
                 else:
                     bbox_regressions.append(
                         act(self.regression_bns[level_idx][conv_idx](conv(level)))
