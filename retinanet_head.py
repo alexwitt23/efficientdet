@@ -115,16 +115,22 @@ class RetinaNetHead(torch.nn.Module):
             for conv_idx, (conv, act) in enumerate(
                 zip(self.classification_subnet, self.classification_acts)
             ):
+                if conv_idx == 0:
+                    classifications_inter.append(level)
+
                 classifications_inter.append(
-                    act(self.classification_bns[level_idx][conv_idx](conv(level)))
+                    act(self.classification_bns[level_idx][conv_idx](conv(classifications_inter[-1])))
                 )
             classifications.append(self.cls_pred(classifications_inter[-1]))
 
             for conv_idx, (conv, act) in enumerate(
                 zip(self.regression_subnet, self.regression_acts)
             ):
+                if conv_idx == 0:
+                    bbox_regressions_inter.append(level)
+
                 bbox_regressions_inter.append(
-                    act(self.regression_bns[level_idx][conv_idx](conv(level)))
+                    act(self.regression_bns[level_idx][conv_idx](conv(bbox_regressions_inter[-1])))
                 )
             bbox_regressions.append(self.reg_pred(bbox_regressions_inter[-1]))
 
