@@ -105,38 +105,27 @@ class RetinaNetHead(torch.nn.Module):
     ) -> Tuple[List[torch.Tensor], List[torch.Tensor]]:
         """ Applies the regression and classification subnets to each of the
         incoming feature maps. """
+        bbox_regressions_inter = []
+        classifications_inter = []
         bbox_regressions = []
         classifications = []
+
         for level_idx, level in enumerate(feature_maps.values()):
-            cls_out = level
+
             for conv_idx, (conv, act) in enumerate(
                 zip(self.classification_subnet, self.classification_acts)
             ):
-                if conv_idx > 0:
-                    classifications[-1] = act(
-                        self.classification_bns[level_idx][conv_idx](
-                            conv(classifications[-1])
-                        )
-                    )
-                else:
-                    classifications.append(
-                        act(self.classification_bns[level_idx][conv_idx](conv(level)))
-                    )
-            classifications[-1] = self.cls_pred(classifications[-1])
+                classifications_inter.append(
+                    act(self.classification_bns[level_idx][conv_idx](conv(level)))
+                )
+            classifications.append(self.cls_pred(classifications_inter[-1]))
 
             for conv_idx, (conv, act) in enumerate(
                 zip(self.regression_subnet, self.regression_acts)
             ):
-                if conv_idx > 0:
-                    bbox_regressions[-1] = act(
-                        self.regression_bns[level_idx][conv_idx](
-                            conv(bbox_regressions[-1])
-                        )
-                    )
-                else:
-                    bbox_regressions.append(
-                        act(self.regression_bns[level_idx][conv_idx](conv(level)))
-                    )
-            bbox_regressions[-1] = self.reg_pred(bbox_regressions[-1])
+                bbox_regressions_inter.append(
+                    act(self.regression_bns[level_idx][conv_idx](conv(level)))
+                )
+            bbox_regressions.append(self.reg_pred(bbox_regressions_inter[-1]))
 
         return classifications, bbox_regressions

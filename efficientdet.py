@@ -45,6 +45,10 @@ class EfficientDet(torch.nn.Module):
         ...     out = net(torch.randn(1, 3, 512, 512))
         >>> len(out)
         2
+        >>> len(out[0])
+        5
+        >>> len(out[1])
+        5
         """
         super().__init__()
         self.levels = levels
