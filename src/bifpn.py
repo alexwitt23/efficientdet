@@ -232,14 +232,14 @@ class CombineLevels(torch.nn.Module):
         self.offsets = [index_offset + offset for offset in param.offsets]
         self.levels_in = levels_in
 
-        # Construct lateral convolutions if any of the original input levels are part of
-        # this node. The lateral convs are needed to homogenize the channel depth.
-        self.lateral_convs = torch.nn.ModuleList()
+        # Construct lateral convolutions if any of the original input levels
+        # are part of this node. The lateral convs are needed to homogenize
+        # the channel depth.
+        self.lateral_node = None
         for offset in self.offsets:
             if offset in levels_in and levels_in[offset] != channels:
-                self.lateral_convs.append(
-                    torch.nn.Conv2d(levels_in[offset], channels, kernel_size=1)
-                )
+                self.lateral_node = offset
+                self.lateral_conv = torch.nn.Conv2d(levels_in[offset], channels, kernel_size=1)
 
         # Construct the resample module.
         if param.upsample:
@@ -264,9 +264,9 @@ class CombineLevels(torch.nn.Module):
             # Apply lateral convs if needed. This is only needed on the first sublayer
             # of the first bifpn block due to the size of the original pyramid levels
             # extracted from the backbone.
-            if self.lateral_convs and node in self.levels_in and node in self.offsets:
-                nodes[node] = self.lateral_convs[0](x[node])
-            elif node != max(self.offsets):
+            if node == self.lateral_node:
+                nodes[node] = self.lateral_conv(x[node])
+            elif node in self.offsets and node != max(self.offsets):
                 nodes[node] = x[node]
 
         nodes[max(self.offsets)] = self.resample(x[max(self.offsets)])
