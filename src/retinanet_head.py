@@ -76,7 +76,9 @@ class RetinaNetHead(torch.nn.Module):
         # Here is where the two subnets diverge. The classification net expands the input
         # into (anchors_num * num_classes) filters because it predicts 'the probability
         # of object presence at each spatial postion for each of the A anchors
-        self.cls_pred = torch.nn.Sequential(*conv(in_channels, anchors_per_cell * num_classes))
+        self.cls_pred = torch.nn.Sequential(
+            *conv(in_channels, anchors_per_cell * num_classes)
+        )
 
         # The regerssion expands the input into (4 * A) channels. So each x,y in the
         # feature map has (4 * A) channels where 4 represents (dx, dy, dw, dh). The
