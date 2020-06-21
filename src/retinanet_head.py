@@ -65,7 +65,7 @@ class RetinaNetHead(torch.nn.Module):
         for conv_idx in range(num_levels):
             level_bns = torch.nn.ModuleList()
             for level_idx in range(num_convolutions):
-                level_bns.append(torch.nn.BatchNorm2d(in_channels, 1e-2, 1e-3))
+                level_bns.append(torch.nn.BatchNorm2d(in_channels, eps=1e-3, momentum=1e-2))
             self.classification_bns.append(level_bns)
 
         # NOTE same basic architecture between box regression and classification
