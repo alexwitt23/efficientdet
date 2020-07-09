@@ -1,1 +1,2 @@
 dataclasses==0.7
+opencv-python==4.2.0.34

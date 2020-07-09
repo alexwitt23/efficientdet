@@ -159,6 +159,7 @@ def depthwise(channels: int, kernel_size: int, stride: int) -> List[torch.nn.Mod
             padding=kernel_size // 2,
             bias=False,
         ),
+        torch.nn.Conv2d(channels, channels, kernel_size=1),
         torch.nn.BatchNorm2d(
             num_features=channels, momentum=_BATCH_NORM_MOMENTUM, eps=_BATCH_NORM_EPS
         ),
